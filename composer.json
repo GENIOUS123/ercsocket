@@ -1,0 +1,11 @@
+{
+    "autoload": {
+        "psr-4": {
+            "ERC\\": "src"
+        }
+    },
+    "require": {
+        "cboden/ratchet": "^0.4",
+        "vlucas/phpdotenv": "^5.6"
+    }
+}
