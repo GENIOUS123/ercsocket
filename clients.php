@@ -1,9 +1,11 @@
 <?php
 require __DIR__ . '/vendor/autoload.php';
-$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
-$dotenv->load();
 
-require 'database.php';
+use Dotenv\Dotenv;
+use ERC\WebSocket\Database;
+
+$dotenv = Dotenv::createImmutable(__DIR__);
+$dotenv->load();
 
 $db = new Database();
 $clients = $db->getClients();

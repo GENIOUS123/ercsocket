@@ -4,7 +4,7 @@ namespace ERC\WebSocket;
 
 use Ratchet\MessageComponentInterface;
 use Ratchet\ConnectionInterface;
-use Database;
+use ERC\WebSocket\Database;
 use Dotenv\Dotenv;
 
 class ErrorLog implements MessageComponentInterface {

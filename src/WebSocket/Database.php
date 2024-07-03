@@ -1,4 +1,7 @@
 <?php
+namespace ERC\WebSocket;
+use PDO;
+
 class Database {
     private $pdo;
 
