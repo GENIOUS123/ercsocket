@@ -19,6 +19,7 @@ try {
     );
 
     echo "WebSocket server is running at port 8087";
+    
     $server->run();
 } catch (Exception $e) {
     echo "Error: " . $e->getMessage() . "\n";
