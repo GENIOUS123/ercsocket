@@ -4,6 +4,7 @@ use PDO;
 
 class Database {
     private $pdo;
+    private $driver;
 
     public function __construct() {
         $this->connect();
@@ -12,6 +13,7 @@ class Database {
 
     private function connect() {
         $driver = getenv('DB_CONNECTION') ?: 'sqlite';
+        $this->driver = $driver;
 
         if ($driver === 'pgsql') {
             $host = getenv('DB_HOST') ?: 'db';
@@ -34,12 +36,37 @@ class Database {
     }
 
     private function initialize() {
+        if ($this->driver === 'pgsql') {
+            $this->pdo->exec("CREATE TABLE IF NOT EXISTS clients (
+                id SERIAL PRIMARY KEY,
+                deviceId TEXT UNIQUE,
+                email TEXT,
+                status TEXT
+            )");
+            $this->ensurePostgresIdDefault();
+            return;
+        }
+
             $this->pdo->exec("CREATE TABLE IF NOT EXISTS clients (
             id INTEGER PRIMARY KEY,
             deviceId TEXT UNIQUE,
             email TEXT,
             status TEXT
         )");
+    }
+
+    private function ensurePostgresIdDefault() {
+        $default = $this->pdo
+            ->query("SELECT column_default FROM information_schema.columns WHERE table_name = 'clients' AND column_name = 'id'")
+            ->fetchColumn();
+
+        if ($default) {
+            return;
+        }
+
+        $this->pdo->exec("CREATE SEQUENCE IF NOT EXISTS clients_id_seq OWNED BY clients.id");
+        $this->pdo->exec("SELECT setval('clients_id_seq', COALESCE((SELECT MAX(id) FROM clients), 0) + 1, false)");
+        $this->pdo->exec("ALTER TABLE clients ALTER COLUMN id SET DEFAULT nextval('clients_id_seq')");
     }
 
   public function upsertClient($deviceId, $status, $email = null) {

@@ -12,6 +12,7 @@ WORKDIR /var/www/html
 COPY . /var/www/html
 
 RUN composer install --no-dev --optimize-autoloader --no-interaction --no-progress
+RUN echo "error_reporting = E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED" > /usr/local/etc/php/conf.d/error-reporting.ini
 
 EXPOSE 8080 8087
 
