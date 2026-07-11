@@ -109,11 +109,17 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
 
         function updateClients(clients) {
             clientsTable.innerHTML = '';
-            const normalizedClients = clients.map(client => ({
-                ...client,
-                deviceId: client.deviceId || client.deviceid
-            }));
+            const clientList = Array.isArray(clients) ? clients : [];
+            const normalizedClients = clientList.map(client => {
+                const deviceId = client.deviceId || client.deviceid || client.DEVICEID || client.device_id || '';
+                return {
+                    deviceId: deviceId,
+                    email: client.email || client.Email || client.EMAIL || '',
+                    status: client.status || client.Status || client.STATUS || 'Unknown'
+                };
+            });
             const visibleClients = normalizedClients.filter(client => isValidDeviceId(client.deviceId));
+            console.log('Rendering clients:', { received: clientList.length, visible: visibleClients.length, clients: normalizedClients });
 
             if (visibleClients.length === 0) {
                 const row = document.createElement('tr');
@@ -316,6 +322,8 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
             $.ajax({
                 url: status ? `clients.php?status=${encodeURIComponent(status)}` : 'clients.php',
                 method: 'GET',
+                dataType: 'json',
+                cache: false,
                 success: function(clients) {
                     updateClients(clients);
                 },
