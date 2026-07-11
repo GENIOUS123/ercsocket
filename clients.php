@@ -8,7 +8,7 @@ $dotenv = Dotenv::createImmutable(__DIR__);
 $dotenv->safeLoad();
 
 $status = $_GET['status'] ?? null;
-$db = new Database();
+$db = new Database(true);
 $clients = $db->getClients($status);
 
 header('Content-Type: application/json');

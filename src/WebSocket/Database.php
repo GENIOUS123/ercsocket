@@ -5,8 +5,10 @@ use PDO;
 class Database {
     private $pdo;
     private $driver;
+    private $quiet;
 
-    public function __construct() {
+    public function __construct($quiet = false) {
+        $this->quiet = $quiet;
         $this->connect();
         $this->initialize();
         $this->deleteInvalidClients();
@@ -208,6 +210,10 @@ class Database {
     }
 
     private function log($tag, $message, array $context = []) {
+        if ($this->quiet) {
+            return;
+        }
+
         $contextJson = $context ? ' ' . json_encode($context, JSON_UNESCAPED_SLASHES) : '';
         echo sprintf("[%s] %s%s\n", $tag, $message, $contextJson);
     }
