@@ -5,9 +5,13 @@ RUN apt-get update \
     && docker-php-ext-install pdo_sqlite pdo_pgsql sockets \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
 WORKDIR /var/www/html
 
 COPY . /var/www/html
+
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-progress
 
 EXPOSE 8080 8087
 

@@ -1,0 +1,11 @@
+.git/
+.vscode/
+.env
+.env.*
+vendor/
+clients.db
+data/
+*.log
+logs/
+cache/
+tmp/
