@@ -107,37 +107,54 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
             sessionStorage.setItem('ercAdminTabId', tabId);
         }
 
+        function normalizeClient(client) {
+            const deviceId = client.deviceId || client.deviceid || client.DEVICEID || client.device_id || '';
+            return {
+                deviceId: String(deviceId).trim(),
+                email: client.email || client.Email || client.EMAIL || '',
+                status: client.status || client.Status || client.STATUS || 'Unknown'
+            };
+        }
+
+        function isClientListPayload(payload) {
+            return Array.isArray(payload) && payload.length > 0 && payload.every(client => {
+                return client && typeof client === 'object' && isValidDeviceId(normalizeClient(client).deviceId);
+            });
+        }
+
         function updateClients(clients) {
+            console.log('[clients] updateClients input:', clients);
             clientsTable.innerHTML = '';
             if (typeof clients === 'string') {
                 try {
                     clients = JSON.parse(clients);
+                    console.log('[clients] parsed string response:', clients);
                 } catch (error) {
-                    console.log('Invalid clients response:', clients);
+                    console.log('[clients] invalid string response:', { error, clients });
                     clients = [];
                 }
             }
 
             const clientList = Array.isArray(clients) ? clients : [];
-            const normalizedClients = clientList.map(client => {
-                const deviceId = client.deviceId || client.deviceid || client.DEVICEID || client.device_id || '';
-                return {
-                    deviceId: String(deviceId).trim(),
-                    email: client.email || client.Email || client.EMAIL || '',
-                    status: client.status || client.Status || client.STATUS || 'Unknown'
-                };
-            });
+            const normalizedClients = clientList.map(normalizeClient);
             const visibleClients = normalizedClients.filter(client => isValidDeviceId(client.deviceId));
-            console.log('Rendering clients:', { received: clientList.length, visible: visibleClients.length, clients: normalizedClients });
+            console.log('[clients] render summary:', {
+                received: clientList.length,
+                normalized: normalizedClients,
+                visible: visibleClients.length,
+                tableFound: Boolean(clientsTable)
+            });
 
             if (visibleClients.length === 0) {
                 const row = document.createElement('tr');
                 row.innerHTML = '<td class="p-3 text-center text-gray-500 border-b border-gray-300" colspan="3">No clients found.</td>';
                 clientsTable.appendChild(row);
+                console.log('[clients] no visible clients; rendered empty row');
                 return;
             }
 
             visibleClients.forEach(client => {
+                console.log('[clients] appending row:', client);
                 const row = document.createElement('tr');
                 row.classList.add('cursor-pointer');
                 row.onclick = () => emailInput.value = client.deviceId;
@@ -159,6 +176,7 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
                 row.appendChild(statusCell);
                 clientsTable.appendChild(row);
             });
+            console.log('[clients] rows rendered:', clientsTable.children.length);
         }
 
         function isValidDeviceId(value) {
@@ -288,17 +306,23 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
             };
 
             conn.onmessage = function (e) {
+                console.log('[socket] raw message:', e.data);
                 try {
                     const payload = JSON.parse(e.data);
-                    if (Array.isArray(payload)) {
+                    console.log('[socket] parsed payload:', payload);
+                    if (isClientListPayload(payload)) {
+                        console.log('[socket] payload is client list; updating table');
                         updateClients(payload);
                     } else {
+                        console.log('[socket] payload is not client list; displaying message');
                         if (payload.replyToTabId && payload.replyToTabId !== tabId) {
+                            console.log('[socket] ignored payload for another tab:', payload.replyToTabId);
                             return;
                         }
                         displayMessage(e.data);
                     }
                 } catch (error) {
+                    console.log('[socket] failed to parse payload:', error);
                     displayMessage(e.data);
                 }
             };
@@ -337,20 +361,30 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
             console.log('Sent:', messageData);
         };
 
-        function updateClientsDisplay() {
+        async function updateClientsDisplay() {
             const status = clientStatusFilter.value;
-            $.ajax({
-                url: status ? `clients.php?status=${encodeURIComponent(status)}` : 'clients.php',
-                method: 'GET',
-                dataType: 'json',
-                cache: false,
-                success: function(clients) {
-                    updateClients(clients);
-                },
-                error: function(err) {
-                    console.log('Error fetching clients:', err);
-                }
-            });
+            const url = status ? `clients.php?status=${encodeURIComponent(status)}` : 'clients.php';
+            const requestUrl = `${url}${url.includes('?') ? '&' : '?'}_=${Date.now()}`;
+            console.log('[clients] fetching:', requestUrl);
+
+            try {
+                const response = await fetch(requestUrl, {
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store'
+                });
+                const text = await response.text();
+                console.log('[clients] fetch response:', {
+                    ok: response.ok,
+                    status: response.status,
+                    contentType: response.headers.get('content-type'),
+                    text: text
+                });
+                const clients = JSON.parse(text);
+                console.log('[clients] decoded JSON:', clients);
+                updateClients(clients);
+            } catch (error) {
+                console.log('[clients] fetch/render error:', error);
+            }
         }
 
         clientStatusFilter.onchange = updateClientsDisplay;
