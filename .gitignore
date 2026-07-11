@@ -1,0 +1,26 @@
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+
+# Composer dependencies
+/vendor/
+
+# Local databases and runtime state
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs and caches
+*.log
+/logs/
+/cache/
+/tmp/
+
+# IDE/editor files
+/.vscode/
+/.idea/
+
+# OS metadata
+.DS_Store
+Thumbs.db
