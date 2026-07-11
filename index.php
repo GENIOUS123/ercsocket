@@ -4,11 +4,11 @@ use Dotenv\Dotenv;
 require_once __DIR__ . '/vendor/autoload.php';
 
 $dotenv = Dotenv::createImmutable(__DIR__);
-$dotenv->load();
+$dotenv->safeLoad();
 
-$adminEmail = $_ENV['ADMIN_EMAIL'];
-$socketUrl = $_ENV['ADMIN_SOCKET'];
-$deviceId = $_ENV['DEVICE_ID'];
+$adminEmail = getenv('ADMIN_EMAIL') ?: ($_ENV['ADMIN_EMAIL'] ?? 'itsupport@erceyecare.com');
+$socketUrl = getenv('ADMIN_SOCKET') ?: ($_ENV['ADMIN_SOCKET'] ?? 'wss://monitor.erclens.com');
+$deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC004145665551wesASDVB123f0');
 ?>
 
 <!DOCTYPE html>

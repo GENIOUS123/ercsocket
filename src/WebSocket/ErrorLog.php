@@ -19,9 +19,9 @@ class ErrorLog implements MessageComponentInterface {
         $this->clients = new \SplObjectStorage;
         $this->db = new Database();
         $dotenv = Dotenv::createImmutable(__DIR__ . '/../../');
-        $dotenv->load();
-        $this->adminEmail = $_ENV['ADMIN_EMAIL'];
-        $this->adminDeviceId = $_ENV['DEVICE_ID'];
+        $dotenv->safeLoad();
+        $this->adminEmail = getenv('ADMIN_EMAIL') ?: ($_ENV['ADMIN_EMAIL'] ?? 'itsupport@erceyecare.com');
+        $this->adminDeviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC004145665551wesASDVB123f0');
     }
 
     public function onOpen(ConnectionInterface $conn) {

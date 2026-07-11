@@ -5,7 +5,7 @@ use Dotenv\Dotenv;
 use ERC\WebSocket\Database;
 
 $dotenv = Dotenv::createImmutable(__DIR__);
-$dotenv->load();
+$dotenv->safeLoad();
 
 $db = new Database();
 $clients = $db->getClients();
