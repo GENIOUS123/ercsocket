@@ -9,6 +9,7 @@ class Database {
     public function __construct() {
         $this->connect();
         $this->initialize();
+        $this->deleteInvalidClients();
     }
 
     private function connect() {
@@ -70,6 +71,14 @@ class Database {
     }
 
   public function upsertClient($deviceId, $status, $email = null) {
+    $deviceId = $this->normalizeDeviceId($deviceId);
+    if ($deviceId === null) {
+        echo "Skipped client update because deviceId is invalid\n";
+        return false;
+    }
+
+    $email = $this->normalizeEmail($email);
+
     // Check if client with given deviceId already exists
     $existingClient = $this->getClientByDeviceId($deviceId);
 
@@ -96,18 +105,70 @@ class Database {
             echo "New device {$deviceId} connected with status: $status\n";
         }
     }
+    return true;
 }
 
     public function getClientByDeviceId($deviceId) {
+        $deviceId = $this->normalizeDeviceId($deviceId);
+        if ($deviceId === null) {
+            return false;
+        }
+
         $stmt = $this->pdo->prepare("SELECT * FROM clients WHERE deviceId = :deviceId LIMIT 1");
         $stmt->bindParam(':deviceId', $deviceId);
         $stmt->execute();
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    public function getClients() {
-        $stmt = $this->pdo->query("SELECT deviceId , email, status FROM clients");
+    public function getClients($status = null) {
+        $params = [];
+        $sql = "SELECT deviceId, email, status FROM clients
+                WHERE deviceId IS NOT NULL
+                AND TRIM(deviceId) <> ''
+                AND LOWER(TRIM(deviceId)) NOT IN ('undefined', 'null', 'nan')";
+
+        if ($status !== null && in_array($status, ['Online', 'Offline', 'Loggedin'], true)) {
+            $sql .= " AND status = :status";
+            $params[':status'] = $status;
+        }
+
+        $sql .= " ORDER BY CASE WHEN status IN ('Online', 'Loggedin') THEN 0 ELSE 1 END, deviceId";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function deleteInvalidClients() {
+        $this->pdo->exec("DELETE FROM clients
+            WHERE deviceId IS NULL
+            OR TRIM(deviceId) = ''
+            OR LOWER(TRIM(deviceId)) IN ('undefined', 'null', 'nan')");
+    }
+
+    private function normalizeDeviceId($deviceId) {
+        if ($deviceId === null) {
+            return null;
+        }
+
+        $deviceId = trim((string) $deviceId);
+        if ($deviceId === '' || in_array(strtolower($deviceId), ['undefined', 'null', 'nan'], true)) {
+            return null;
+        }
+
+        return $deviceId;
+    }
+
+    private function normalizeEmail($email) {
+        if ($email === null) {
+            return null;
+        }
+
+        $email = trim((string) $email);
+        if ($email === '' || in_array(strtolower($email), ['undefined', 'null', 'nan', 'n/a'], true)) {
+            return null;
+        }
+
+        return $email;
     }
 }
 ?>

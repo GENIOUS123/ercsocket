@@ -41,7 +41,7 @@ class ErrorLog implements MessageComponentInterface {
             return;
         }
 
-        if (!isset($query['deviceId'])) {
+        if (!$this->isValidDeviceId($query['deviceId'] ?? null)) {
             $conn->close();
             return;
         }
@@ -232,5 +232,14 @@ class ErrorLog implements MessageComponentInterface {
                 echo "Updated status for Device ID {$deviceId} to Offline\n";
             }
         }
+    }
+
+    private function isValidDeviceId($deviceId) {
+        if ($deviceId === null) {
+            return false;
+        }
+
+        $deviceId = trim((string) $deviceId);
+        return $deviceId !== '' && !in_array(strtolower($deviceId), ['undefined', 'null', 'nan'], true);
     }
 }

@@ -7,8 +7,9 @@ use ERC\WebSocket\Database;
 $dotenv = Dotenv::createImmutable(__DIR__);
 $dotenv->safeLoad();
 
+$status = $_GET['status'] ?? null;
 $db = new Database();
-$clients = $db->getClients();
+$clients = $db->getClients($status);
 
 header('Content-Type: application/json');
 echo json_encode($clients);

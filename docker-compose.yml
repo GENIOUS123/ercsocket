@@ -6,8 +6,6 @@ services:
       POSTGRES_DB: ${DB_DATABASE:-ercsocket}
       POSTGRES_USER: ${DB_USERNAME:-ercsocket}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-ercsocket}
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -26,11 +24,11 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8080:8080"
-      - "8087:8087"
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8087:8087"
     environment:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-itsupport@erceyecare.com}
-      ADMIN_SOCKET: wss://monitor.erclens.com
+      ADMIN_SOCKET: ${ADMIN_SOCKET:-wss://monitor.erclens.com/ercsocket}
       DEVICE_ID: ${DEVICE_ID:-asxc1234567ERC004145665551wesASDVB123f0}
       DB_CONNECTION: ${DB_CONNECTION:-pgsql}
       DB_HOST: ${DB_HOST:-db}

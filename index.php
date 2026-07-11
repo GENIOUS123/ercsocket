@@ -62,6 +62,15 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
         </div>
         <div id="statusMessage" class="mb-4 font-bold"></div>
         <div id="requestTracker" class="mb-6"></div>
+        <div class="mb-3 flex items-center justify-end gap-2">
+            <label for="clientStatusFilter" class="text-sm font-semibold text-gray-700">Filter</label>
+            <select id="clientStatusFilter" class="px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:border-blue-500">
+                <option value="">All</option>
+                <option value="Online">Online</option>
+                <option value="Loggedin">Logged In</option>
+                <option value="Offline">Offline</option>
+            </select>
+        </div>
         <table class="w-full mb-8">
             <thead>
                 <tr>
@@ -84,6 +93,7 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
         const emailInput = document.getElementById('emailInput');
         const executeButton = document.getElementById('executeButton');
         const statusMessage = document.getElementById('statusMessage');
+        const clientStatusFilter = document.getElementById('clientStatusFilter');
         const requestTracker = document.getElementById('requestTracker');
         const messages = document.getElementById('messages');
         const pendingRequests = new Map();
@@ -99,7 +109,16 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
 
         function updateClients(clients) {
             clientsTable.innerHTML = '';
-            clients.forEach(client => {
+            const visibleClients = clients.filter(client => isValidDeviceId(client.deviceId));
+
+            if (visibleClients.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td class="p-3 text-center text-gray-500 border-b border-gray-300" colspan="3">No clients found.</td>';
+                clientsTable.appendChild(row);
+                return;
+            }
+
+            visibleClients.forEach(client => {
                 const row = document.createElement('tr');
                 row.classList.add('cursor-pointer');
                 row.onclick = () => emailInput.value = client.deviceId;
@@ -110,6 +129,15 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
                 `;
                 clientsTable.appendChild(row);
             });
+        }
+
+        function isValidDeviceId(value) {
+            if (value === null || value === undefined) {
+                return false;
+            }
+
+            const normalized = String(value).trim().toLowerCase();
+            return normalized !== '' && !['undefined', 'null', 'nan'].includes(normalized);
         }
 
         function renderRequestTracker() {
@@ -280,8 +308,9 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
         };
 
         function updateClientsDisplay() {
+            const status = clientStatusFilter.value;
             $.ajax({
-                url: 'clients.php',
+                url: status ? `clients.php?status=${encodeURIComponent(status)}` : 'clients.php',
                 method: 'GET',
                 success: function(clients) {
                     updateClients(clients);
@@ -292,6 +321,7 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
             });
         }
 
+        clientStatusFilter.onchange = updateClientsDisplay;
         setInterval(updateClientsDisplay, 5000);
     </script>
 </body>
