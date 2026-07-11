@@ -6,8 +6,31 @@ class Database {
     private $pdo;
 
     public function __construct() {
-        $this->pdo = new PDO('sqlite:clients.db');
+        $this->connect();
         $this->initialize();
+    }
+
+    private function connect() {
+        $driver = getenv('DB_CONNECTION') ?: 'sqlite';
+
+        if ($driver === 'pgsql') {
+            $host = getenv('DB_HOST') ?: 'db';
+            $port = getenv('DB_PORT') ?: '5432';
+            $database = getenv('DB_DATABASE') ?: 'ercsocket';
+            $username = getenv('DB_USERNAME') ?: 'ercsocket';
+            $password = getenv('DB_PASSWORD') ?: 'ercsocket';
+
+            $dsn = sprintf('pgsql:host=%s;port=%s;dbname=%s', $host, $port, $database);
+            $this->pdo = new PDO($dsn, $username, $password, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            ]);
+            return;
+        }
+
+        $dbPath = getenv('DB_PATH') ?: __DIR__ . '/../../clients.db';
+        $this->pdo = new PDO('sqlite:' . $dbPath, null, null, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        ]);
     }
 
     private function initialize() {

@@ -12,6 +12,8 @@ class ErrorLog implements MessageComponentInterface {
     private $db;
     private $adminEmail;
     private $adminDeviceId;
+    private $pendingRequests = [];
+    private $pendingRequestsByDevice = [];
 
     public function __construct() {
         $this->clients = new \SplObjectStorage;
@@ -23,34 +25,53 @@ class ErrorLog implements MessageComponentInterface {
     }
 
     public function onOpen(ConnectionInterface $conn) {
-        // Check and update status of all devices
         $this->checkAndUpdateDeviceStatus();
 
         $querystring = $conn->httpRequest->getUri()->getQuery();
         parse_str($querystring, $query);
-        print_r($query);
-        if (isset($query['deviceId'])) {
-            $deviceId = $query['deviceId'];
-            $email = $query['email'] ?? null;
 
-            if ($email) {
-                // Email provided and existing email is empty, update email
-                $this->db->upsertClient($deviceId, 'Loggedin', $email);
-                echo "Device {$deviceId} logged in with updated email: $email\n";
-            } else {
-                // Email not provided or existing email is not empty, do not update email
-                $this->db->upsertClient($deviceId, 'Online');
-                echo "Device {$deviceId} connected with no or unchanged email\n";
-            }
-            $conn->deviceId = $deviceId;
+        $role = ($query['role'] ?? null) === 'admin' ? 'admin' : 'device';
+        $conn->role = $role;
+        $conn->tabId = $query['tabId'] ?? uniqid('tab-', true);
+
+        if ($role === 'admin') {
+            $conn->deviceId = $query['deviceId'] ?? $this->adminDeviceId;
             $this->clients->attach($conn);
-            echo "New connection! ({$conn->resourceId}) - Device ID: $deviceId\n";
-        } else {
-            $conn->close();
+            echo "Admin connection opened for tab {$conn->tabId}\n";
+            return;
         }
+
+        if (!isset($query['deviceId'])) {
+            $conn->close();
+            return;
+        }
+
+        $deviceId = $query['deviceId'];
+        $email = $query['email'] ?? null;
+
+        if ($email) {
+            $this->db->upsertClient($deviceId, 'Loggedin', $email);
+            echo "Device {$deviceId} logged in with updated email: $email\n";
+        } else {
+            $this->db->upsertClient($deviceId, 'Online');
+            echo "Device {$deviceId} connected with no or unchanged email\n";
+        }
+
+        $conn->deviceId = $deviceId;
+        $this->clients->attach($conn);
+        echo "New connection! ({$conn->resourceId}) - Device ID: $deviceId\n";
     }
 
     public function onClose(ConnectionInterface $conn) {
+        $role = $conn->role ?? 'device';
+
+        if ($role === 'admin') {
+            $this->removePendingRequestsForTab($conn->tabId ?? null);
+            $this->clients->detach($conn);
+            echo "Admin connection {$conn->resourceId} has disconnected\n";
+            return;
+        }
+
         if (isset($conn->deviceId)) {
             $this->db->upsertClient($conn->deviceId, 'Offline');
             $this->clients->detach($conn);
@@ -65,58 +86,147 @@ class ErrorLog implements MessageComponentInterface {
 
     public function onMessage(ConnectionInterface $from, $msg) {
         $data = json_decode($msg, true);
-        if ($data) {
-            if ($from->deviceId === $this->adminDeviceId) {
-                if ($data['sentTo'] === $this->adminDeviceId) {
-                    $data['sentBy'] = $this->adminDeviceId;
-                    $data['message'] = "You cannot command yourself";
-                    foreach ($this->clients as $client) {
-                        if ($client->deviceId === $this->adminDeviceId) {
-                            $client->send(json_encode($data));
-                            echo "Admin sent command to Self";
-                            return;
-                        }
-                    }
-                } else {
-                    // Admin sent a message to another client
-                    $targetDevice = $data['sentTo'];
-                    $data['sentBy'] = $this->adminDeviceId;
-                    foreach ($this->clients as $client) {
-                        if ($client->deviceId === $targetDevice) {
-                            $client->send(json_encode($data));
-                            echo "Admin sent command to Client: " . $targetDevice;
-                            return;
-                        }
-                    }
+        if (!is_array($data)) {
+            return;
+        }
+
+        $role = $from->role ?? 'device';
+
+        if ($role === 'admin') {
+            $requestId = $data['requestId'] ?? uniqid('req-', true);
+            $targetDevice = $data['sentTo'] ?? null;
+            $tabId = $data['tabId'] ?? $from->tabId ?? null;
+
+            $this->pendingRequests[$requestId] = [
+                'tabId' => $tabId,
+                'targetDevice' => $targetDevice,
+                'requestId' => $requestId,
+            ];
+
+            if ($targetDevice !== null) {
+                $this->pendingRequestsByDevice[$targetDevice] = $this->pendingRequests[$requestId];
+            }
+
+            $this->sendToAdminTab([
+                'type' => 'request-status',
+                'requestId' => $requestId,
+                'status' => 'pending',
+                'message' => 'Request sent to device',
+                'targetDevice' => $targetDevice,
+                'tabId' => $tabId,
+            ], $tabId);
+
+            if ($targetDevice === $this->adminDeviceId) {
+                $this->sendToAdminTab([
+                    'type' => 'request-status',
+                    'requestId' => $requestId,
+                    'status' => 'error',
+                    'message' => 'You cannot command yourself',
+                    'targetDevice' => $targetDevice,
+                    'tabId' => $tabId,
+                ], $tabId);
+                return;
+            }
+
+            foreach ($this->clients as $client) {
+                if (($client->role ?? 'device') !== 'device') {
+                    continue;
                 }
-            } else {
-                // A client sent a message to the admin
-                $targetDevice = $this->adminDeviceId;
-                foreach ($this->clients as $client) {
-                    if ($client->deviceId === $targetDevice) {
-                        $client->send(json_encode($data));
-                        echo "Client: " . $from->deviceId . " sent message to Admin";
-                        return;
-                    }
+
+                if ($client->deviceId === $targetDevice) {
+                    $payload = $data;
+                    $payload['requestId'] = $requestId;
+                    $payload['tabId'] = $tabId;
+                    $payload['sentBy'] = $this->adminDeviceId;
+                    $payload['replyToTabId'] = $tabId;
+                    $client->send(json_encode($payload));
+                    echo "Admin sent command to Client: " . $targetDevice;
+                    return;
                 }
+            }
+
+            $this->sendToAdminTab([
+                'type' => 'request-status',
+                'requestId' => $requestId,
+                'status' => 'error',
+                'message' => 'Device is not currently connected',
+                'targetDevice' => $targetDevice,
+                'tabId' => $tabId,
+            ], $tabId);
+            return;
+        }
+
+        $requestId = $data['requestId'] ?? null;
+        $replyToTabId = null;
+
+        if ($requestId && isset($this->pendingRequests[$requestId])) {
+            $replyToTabId = $this->pendingRequests[$requestId]['tabId'] ?? null;
+        } elseif (isset($this->pendingRequestsByDevice[$from->deviceId])) {
+            $pending = $this->pendingRequestsByDevice[$from->deviceId];
+            $replyToTabId = $pending['tabId'] ?? null;
+            $requestId = $pending['requestId'] ?? $requestId;
+        }
+
+        $payload = $data;
+        $payload['requestId'] = $requestId;
+        $payload['replyToTabId'] = $replyToTabId;
+        $payload['type'] = 'response';
+        $payload['status'] = !empty($data['errorlog']) ? 'download-ready' : 'received';
+        $payload['message'] = $payload['message'] ?? 'Received from device';
+
+        $this->sendToAdminTab($payload, $replyToTabId);
+
+        if ($requestId && isset($this->pendingRequests[$requestId])) {
+            unset($this->pendingRequests[$requestId]);
+        }
+        if ($from->deviceId && isset($this->pendingRequestsByDevice[$from->deviceId])) {
+            unset($this->pendingRequestsByDevice[$from->deviceId]);
+        }
+    }
+
+    private function sendToAdminTab($payload, $tabId = null) {
+        $json = json_encode($payload);
+        foreach ($this->clients as $client) {
+            if (($client->role ?? 'device') !== 'admin') {
+                continue;
+            }
+            if ($tabId === null || ($client->tabId ?? null) === $tabId) {
+                $client->send($json);
+            }
+        }
+    }
+
+    private function removePendingRequestsForTab($tabId) {
+        if ($tabId === null) {
+            return;
+        }
+
+        foreach ($this->pendingRequests as $requestId => $pending) {
+            if (($pending['tabId'] ?? null) === $tabId) {
+                unset($this->pendingRequests[$requestId]);
+            }
+        }
+
+        foreach ($this->pendingRequestsByDevice as $deviceId => $pending) {
+            if (($pending['tabId'] ?? null) === $tabId) {
+                unset($this->pendingRequestsByDevice[$deviceId]);
             }
         }
     }
 
     private function checkAndUpdateDeviceStatus() {
-        // Retrieve all devices from the database
         $allDevices = $this->db->getClients();
         foreach ($allDevices as $device) {
             $deviceId = $device['deviceId'];
             $isConnected = false;
-            // Check if the device is currently connected
+
             foreach ($this->clients as $client) {
-                if ($client->deviceId === $deviceId) {
+                if (($client->role ?? 'device') === 'device' && $client->deviceId === $deviceId) {
                     $isConnected = true;
                     break;
                 }
             }
-            // Update the device status if necessary
+
             if (!$isConnected && ($device['status'] === 'Online' || $device['status'] === 'Loggedin')) {
                 $this->db->upsertClient($deviceId, 'Offline');
                 echo "Updated status for Device ID {$deviceId} to Offline\n";

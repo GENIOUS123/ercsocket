@@ -20,7 +20,31 @@ $deviceId = $_ENV['DEVICE_ID'];
     <title>ERC Admin Panel</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-        /* Additional styling can be added here if needed */
+        .message {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .request-item {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.5rem;
+        }
+        .status-pill {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        .status-pending { background: #fef3c7; color: #92400e; }
+        .status-received { background: #dcfce7; color: #166534; }
+        .status-error { background: #fee2e2; color: #991b1b; }
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 </head>
@@ -37,6 +61,7 @@ $deviceId = $_ENV['DEVICE_ID'];
             <button id="executeButton" class="bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex-shrink-0">Execute</button>
         </div>
         <div id="statusMessage" class="mb-4 font-bold"></div>
+        <div id="requestTracker" class="mb-6"></div>
         <table class="w-full mb-8">
             <thead>
                 <tr>
@@ -54,86 +79,150 @@ $deviceId = $_ENV['DEVICE_ID'];
 
     <script>
         let conn;
+        let tabId = sessionStorage.getItem('ercAdminTabId');
         const clientsTable = document.getElementById('clientsTable');
         const emailInput = document.getElementById('emailInput');
         const executeButton = document.getElementById('executeButton');
         const statusMessage = document.getElementById('statusMessage');
+        const requestTracker = document.getElementById('requestTracker');
+        const messages = document.getElementById('messages');
+        const pendingRequests = new Map();
 
         const email = '<?php echo $adminEmail; ?>';
         const deviceId = '<?php echo $deviceId; ?>';
         const socketUrl = '<?php echo $socketUrl; ?>';
 
-        // Function to update clients table
+        if (!tabId) {
+            tabId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            sessionStorage.setItem('ercAdminTabId', tabId);
+        }
+
         function updateClients(clients) {
-            // Clear previous content
             clientsTable.innerHTML = '';
-            // Loop through clients and create rows
             clients.forEach(client => {
                 const row = document.createElement('tr');
                 row.classList.add('cursor-pointer');
                 row.onclick = () => emailInput.value = client.deviceId;
-             row.innerHTML = `
-               <td class="p-2 border-b border-gray-300">${client.deviceId}</td>
-               <td class="p-2 border-b border-gray-300">${client.email || 'N/A'}</td>
-               <td class="p-2 border-b border-gray-300 ${client.status === 'Loggedin' ? 'bg-green-200' : client.status === 'Online' ? 'bg-blue-200' : 'bg-red-200'}">${client.status}</td>
-                 `;
+                row.innerHTML = `
+                    <td class="p-2 border-b border-gray-300">${client.deviceId}</td>
+                    <td class="p-2 border-b border-gray-300">${client.email || 'N/A'}</td>
+                    <td class="p-2 border-b border-gray-300 ${client.status === 'Loggedin' ? 'bg-green-200' : client.status === 'Online' ? 'bg-blue-200' : 'bg-red-200'}">${client.status}</td>
+                `;
                 clientsTable.appendChild(row);
             });
         }
 
-        // Function to display messages
+        function renderRequestTracker() {
+            if (pendingRequests.size === 0) {
+                requestTracker.innerHTML = '<div class="request-item">No active requests.</div>';
+                return;
+            }
+
+            requestTracker.innerHTML = '';
+            pendingRequests.forEach((request, requestId) => {
+                const item = document.createElement('div');
+                item.className = 'request-item';
+                const stateClass = request.status === 'pending' ? 'status-pending' : request.status === 'download-ready' ? 'status-received' : 'status-error';
+                item.innerHTML = `
+                    <div class="flex items-center justify-between gap-2">
+                        <div>
+                            <strong>${request.targetDevice || 'Unknown target'}</strong>
+                            <div class="text-sm text-gray-600">${request.message || 'Waiting for response'}</div>
+                        </div>
+                        <span class="status-pill ${stateClass}">${request.status || 'pending'}</span>
+                    </div>
+                `;
+                requestTracker.appendChild(item);
+            });
+        }
+
+        function updateRequestStatus(requestId, status, details = {}) {
+            if (!requestId) {
+                return;
+            }
+            const existing = pendingRequests.get(requestId) || {};
+            const next = { ...existing, ...details, status };
+            pendingRequests.set(requestId, next);
+            renderRequestTracker();
+        }
+
+        function triggerDownload(payload) {
+            if (!payload.errorlog) {
+                return;
+            }
+            const decodedData = atob(payload.errorlog);
+            const blob = new Blob([decodedData], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${payload.sentBy || payload.targetDevice || 'errorlog'}.txt`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
         function displayMessage(data) {
             let messageData;
             try {
                 messageData = JSON.parse(data);
             } catch (e) {
-                console.log("Invalid JSON:", data);
+                console.log('Invalid JSON:', data);
                 messageData = data;
             }
-            
+
+            if (messageData.type === 'request-status' && messageData.requestId) {
+                updateRequestStatus(messageData.requestId, messageData.status || 'pending', {
+                    targetDevice: messageData.targetDevice,
+                    message: messageData.message || 'Waiting for response'
+                });
+            }
+
             const div = document.createElement('div');
             div.className = 'message';
 
-            if (messageData.message && messageData.sentBy) {
+            if (messageData.type === 'request-status') {
+                div.textContent = `${messageData.message || 'Request update'} (${messageData.status || 'pending'})`;
+            } else if (messageData.message && messageData.sentBy) {
                 div.textContent = `${messageData.message} Sent by ${messageData.sentBy}`;
             } else if (messageData.sentBy === deviceId) {
-                div.textContent = `${messageData.message} Sent by ${messageData.deviceId}`;
+                div.textContent = `${messageData.message || 'Message received'} Sent by ${messageData.deviceId}`;
             } else {
-                div.textContent = messageData;
+                div.textContent = typeof messageData === 'string' ? messageData : JSON.stringify(messageData);
             }
 
-            $("#messages").append(div);
+            messages.appendChild(div);
 
             if (messageData.errorlog) {
-                const decodedData = atob(messageData.errorlog);
-                const blob = new Blob([decodedData], {
-                    type: 'text/plain'
+                updateRequestStatus(messageData.requestId, 'download-ready', {
+                    targetDevice: messageData.targetDevice || messageData.sentBy,
+                    message: 'Error log received'
                 });
-                const url = URL.createObjectURL(blob);
+                triggerDownload(messageData);
                 const link = document.createElement('a');
-                link.href = url;
-                link.download = `${messageData.sentBy}.txt`;
-                link.textContent = 'Download Log';
+                link.href = '#';
+                link.textContent = 'Downloaded';
                 link.style.fontWeight = 'bold';
                 link.style.marginLeft = '10px';
                 div.appendChild(link);
             }
         }
 
-        // Function to connect to WebSocket
         function connectWebSocket() {
-            conn = new WebSocket(`${socketUrl}?deviceId=${deviceId}&email=${email}`);
+            conn = new WebSocket(`${socketUrl}?deviceId=${encodeURIComponent(deviceId)}&email=${encodeURIComponent(email)}&role=admin&tabId=${encodeURIComponent(tabId)}`);
 
             conn.onopen = function () {
                 statusMessage.textContent = 'Connected';
+                statusMessage.classList.remove('text-red-600');
                 statusMessage.classList.add('text-green-600');
                 updateClientsDisplay();
             };
 
             conn.onclose = function () {
                 statusMessage.textContent = 'Disconnected';
+                statusMessage.classList.remove('text-green-600');
                 statusMessage.classList.add('text-red-600');
-                setTimeout(connectWebSocket, 3000); // Reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
             };
 
             conn.onerror = function (error) {
@@ -142,10 +231,13 @@ $deviceId = $_ENV['DEVICE_ID'];
 
             conn.onmessage = function (e) {
                 try {
-                    const clients = JSON.parse(e.data);
-                    if (Array.isArray(clients)) {
-                        updateClients(clients);
+                    const payload = JSON.parse(e.data);
+                    if (Array.isArray(payload)) {
+                        updateClients(payload);
                     } else {
+                        if (payload.replyToTabId && payload.replyToTabId !== tabId) {
+                            return;
+                        }
                         displayMessage(e.data);
                     }
                 } catch (error) {
@@ -154,48 +246,53 @@ $deviceId = $_ENV['DEVICE_ID'];
             };
         }
 
-        // Initial connection
         connectWebSocket();
 
-        // Button click event
         executeButton.onclick = function () {
             const command = document.getElementById('commandDropdown').value;
-            const deviceIdxx = emailInput.value.trim();
-            if (email && conn && conn.readyState === WebSocket.OPEN) {
-                const messageData = {
-                    command: command,
-                    sentTo:deviceIdxx
-                };
-                conn.send(JSON.stringify(messageData));
-                console.log('Sent:', messageData);
-            } else {
-                alert('Please select a client and ensure the connection is active.');
+            const targetDevice = emailInput.value.trim();
+            if (!targetDevice) {
+                alert('Please select a client first.');
+                return;
             }
-        };
-        function countdownReconnect(seconds) {
-                if (seconds > 0) {
-                    statusMessage.textContent = `Disconnected. Reconnecting in ${seconds} seconds...`;
-                    statusMessage.className = 'status-disconnected';
-                    setTimeout(() => countdownReconnect(seconds - 1), 1000);
-                } else {
-                     connectWebSocket();
-                }
+            if (!email || !conn || conn.readyState !== WebSocket.OPEN) {
+                alert('Please ensure the connection is active.');
+                return;
             }
-        
-        function updateClientsDisplay() {
-                $.ajax({
-                    url: 'clients.php',
-                    method: 'GET',
-                    success: function(clients) {
-                        updateClients(clients);
-                    },
-                    error: function(err) {
-                        console.log('Error fetching clients:', err);
-                    }
-                });
-            }
-       setInterval(updateClientsDisplay, 5000);
 
+            const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const messageData = {
+                command: command,
+                sentTo: targetDevice,
+                requestId: requestId,
+                tabId: tabId,
+                sentBy: deviceId
+            };
+
+            pendingRequests.set(requestId, {
+                targetDevice: targetDevice,
+                status: 'pending',
+                message: 'Request sent to device'
+            });
+            renderRequestTracker();
+            conn.send(JSON.stringify(messageData));
+            console.log('Sent:', messageData);
+        };
+
+        function updateClientsDisplay() {
+            $.ajax({
+                url: 'clients.php',
+                method: 'GET',
+                success: function(clients) {
+                    updateClients(clients);
+                },
+                error: function(err) {
+                    console.log('Error fetching clients:', err);
+                }
+            });
+        }
+
+        setInterval(updateClientsDisplay, 5000);
     </script>
 </body>
 
