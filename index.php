@@ -109,11 +109,20 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
 
         function updateClients(clients) {
             clientsTable.innerHTML = '';
+            if (typeof clients === 'string') {
+                try {
+                    clients = JSON.parse(clients);
+                } catch (error) {
+                    console.log('Invalid clients response:', clients);
+                    clients = [];
+                }
+            }
+
             const clientList = Array.isArray(clients) ? clients : [];
             const normalizedClients = clientList.map(client => {
                 const deviceId = client.deviceId || client.deviceid || client.DEVICEID || client.device_id || '';
                 return {
-                    deviceId: deviceId,
+                    deviceId: String(deviceId).trim(),
                     email: client.email || client.Email || client.EMAIL || '',
                     status: client.status || client.Status || client.STATUS || 'Unknown'
                 };
@@ -132,11 +141,22 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
                 const row = document.createElement('tr');
                 row.classList.add('cursor-pointer');
                 row.onclick = () => emailInput.value = client.deviceId;
-                row.innerHTML = `
-                    <td class="p-2 border-b border-gray-300">${client.deviceId}</td>
-                    <td class="p-2 border-b border-gray-300">${client.email || 'N/A'}</td>
-                    <td class="p-2 border-b border-gray-300 ${client.status === 'Loggedin' ? 'bg-green-200' : client.status === 'Online' ? 'bg-blue-200' : 'bg-red-200'}">${client.status}</td>
-                `;
+
+                const deviceCell = document.createElement('td');
+                deviceCell.className = 'p-2 border-b border-gray-300';
+                deviceCell.textContent = client.deviceId;
+
+                const emailCell = document.createElement('td');
+                emailCell.className = 'p-2 border-b border-gray-300';
+                emailCell.textContent = client.email || 'N/A';
+
+                const statusCell = document.createElement('td');
+                statusCell.className = `p-2 border-b border-gray-300 ${client.status === 'Loggedin' ? 'bg-green-200' : client.status === 'Online' ? 'bg-blue-200' : 'bg-red-200'}`;
+                statusCell.textContent = client.status;
+
+                row.appendChild(deviceCell);
+                row.appendChild(emailCell);
+                row.appendChild(statusCell);
                 clientsTable.appendChild(row);
             });
         }
