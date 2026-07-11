@@ -109,7 +109,11 @@ $deviceId = getenv('DEVICE_ID') ?: ($_ENV['DEVICE_ID'] ?? 'asxc1234567ERC0041456
 
         function updateClients(clients) {
             clientsTable.innerHTML = '';
-            const visibleClients = clients.filter(client => isValidDeviceId(client.deviceId));
+            const normalizedClients = clients.map(client => ({
+                ...client,
+                deviceId: client.deviceId || client.deviceid
+            }));
+            const visibleClients = normalizedClients.filter(client => isValidDeviceId(client.deviceId));
 
             if (visibleClients.length === 0) {
                 const row = document.createElement('tr');

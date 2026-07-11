@@ -155,7 +155,7 @@ class Database {
 
     public function getClients($status = null) {
         $params = [];
-        $sql = "SELECT deviceId, email, status FROM clients
+        $sql = "SELECT deviceId AS \"deviceId\", email, status FROM clients
                 WHERE deviceId IS NOT NULL
                 AND TRIM(deviceId) <> ''
                 AND LOWER(TRIM(deviceId)) NOT IN ('undefined', 'null', 'nan')";
